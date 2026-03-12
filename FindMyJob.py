@@ -79,34 +79,55 @@ def scrape_service_public(search_url):
             r = requests.get(url, headers=headers, timeout=15)
             soup = BeautifulSoup(r.text, "html.parser")
             page_jobs = []
-            for a in soup.find_all("a", href=True):
-                href = a.get("href", "")
-                if "/offre-emploi/" not in href: continue
-                title = a.get_text(strip=True)
-                if len(title) < 15: continue
-                link = "https://choisirleservicepublic.gouv.fr" + href if href.startswith("/") else href
-                card = a.find_parent("li") or a.parent
-                meta_texts = [li.get_text(strip=True) for li in card.find_all("li") if li.get_text(strip=True)]
 
-                categorie = localisation = fonction_publique = employeur = date_en_ligne = ""
-                for m in meta_texts:
-                    m_clean = m.strip()
-                    if "Fonction publique" in m_clean:
-                        fonction_publique = m_clean
-                    elif "En ligne depuis" in m_clean:
-                        date_en_ligne = re.sub(r"En ligne depuis le\s*", "", m_clean, flags=re.IGNORECASE).strip()
-                    elif "*" in m_clean and not localisation:
-                        split = [p.strip() for p in m_clean.split("*") if p.strip()]
-                        categorie = split[0] if split else ""
-                        localisation = split[1] if len(split) > 1 else ""
-                    elif not employeur and not any(k in m_clean for k in ["Fonction publique", "En ligne depuis"]):
-                        employeur = m_clean
+            for card in soup.select("li.item div.fr-card--offer"):
+                # Titre + Lien
+                a_tag = card.select_one("h3.fr-card__title a")
+                if not a_tag: continue
+                title = a_tag.get_text(strip=True)
+                link = a_tag.get("href", "")
+
+                # Catégorie (tag coloré ex: "International", "Catégorie A")
+                tag_el = card.select_one("ul.fr-tags-group p.fr-tag")
+                categorie = tag_el.get_text(strip=True) if tag_el else ""
+
+                # Localisation (icône map-pin)
+                loc_el = card.select_one("li.fr-icon-map-pin-2-line")
+                if loc_el:
+                    for sr in loc_el.select("span.sr-only"): sr.decompose()
+                    localisation = loc_el.get_text(strip=True)
+                else:
+                    localisation = ""
+
+                # Fonction publique (icône file)
+                fp_el = card.select_one("li.fr-icon-file-line")
+                if fp_el:
+                    for sr in fp_el.select("span.sr-only"): sr.decompose()
+                    fonction_publique = fp_el.get_text(strip=True)
+                else:
+                    fonction_publique = ""
+
+                # Employeur (icône user)
+                emp_el = card.select_one("li.fr-icon-user-line")
+                if emp_el:
+                    for sr in emp_el.select("span.sr-only"): sr.decompose()
+                    employeur = emp_el.get_text(strip=True)
+                else:
+                    employeur = ""
+
+                # Date (icône calendar)
+                date_el = card.select_one("li.fr-icon-calendar-line")
+                if date_el:
+                    date_en_ligne = re.sub(r"En ligne depuis le\s*", "", date_el.get_text(strip=True), flags=re.IGNORECASE).strip()
+                else:
+                    date_en_ligne = ""
 
                 page_jobs.append({
                     "Titre": title, "Lien": link, "Catégorie": categorie,
                     "Localisation": localisation, "Fonction publique": fonction_publique,
                     "Employeur": employeur, "Date en ligne": date_en_ligne
                 })
+
             if not page_jobs:
                 break
             jobs.extend(page_jobs)
